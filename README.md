@@ -1,6 +1,12 @@
 # QR Code 2.0 Demo – Token-Splitting & Live Validation
 
-![SecureQR Demo](docs/generator.gif)
+<p align="center">
+  <img src="docs/generator.gif" alt="Standardansicht" width="300" style="margin-right: 20px;" />
+  <img src="docs/generator2.gif" alt="ColorBlocks-Ansicht" width="300" />
+</p>
+
+- **Standardansicht:** Klassische Darstellung mit Standardmodulen.  
+- **ColorBlocks-Ansicht:** Darstellung mit runden und farbigen Modulen für moderne Looks.
 
 ## Überblick
 
