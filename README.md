@@ -1,7 +1,7 @@
 # QR Code 2.0 Demo – Token-Splitting & Live Validation
 
 <p align="center">
-  <img src="docs/generator.gif" alt="Standardansicht" width="300" style="margin-right: 20px;" />
+  <img src="docs/generator.gif" alt="Standardansicht" width="300" style="margin-right: 50px;" />
   <img src="docs/generator2.gif" alt="ColorBlocks-Ansicht" width="300" />
 </p>
 
