@@ -1,5 +1,7 @@
 # QR Code 2.0 Demo – Token-Splitting & Live Validation
 
+![SecureQR Demo](docs/generator.gif)
+
 ## Überblick
 
 Dieses Projekt zeigt ein **vollständiges, modernes QR-Code-System**, bestehend aus:
