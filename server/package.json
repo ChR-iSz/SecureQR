@@ -1,5 +1,5 @@
 {
-  "name": "qr-code-2.0-server",
+  "name": "secureqr-server",
   "version": "1.0.0",
   "description": "QR Code 2.0 Demo Backend",
   "main": "server.js",

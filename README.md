@@ -146,12 +146,12 @@ cd server
 npm install
 npm start
 ```
-→ Standard: `http://localhost:3000`
+→ Standard: `http://localhost:8080`
 
 ### Docker
 ```bash
-docker build -t qr-code-2.0 ./server
-docker run -p 3000:3000 qr-code-2.0
+docker build -t SecureQR ./server
+docker run -p 8080:8080 SecureQR
 ```
 
 ### Frontend
