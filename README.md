@@ -180,6 +180,24 @@ docker run -p 8080:8080 SecureQR
 
 ---
 
+## Sicherheit und mögliche Einsatzgebiete
+
+Dieses Projekt ist nicht nur ein **technisches Demo**, sondern bringt auch sicherheitsrelevante Ansätze mit:
+
+- **Token-Splitting und zeitbasierte Darstellung** erschweren das einfache Abfotografieren und spätere Missbrauchen von QR-Codes.  
+- **Signierte Nutzlasten (HMAC)** stellen sicher, dass die gescannten Daten nicht manipuliert werden können.  
+- **Session-Management mit Timeout** verhindert ungenutzte oder abgebrochene Scans und erhöht so die Robustheit.
+
+### Potenzial für Sicherheitsanwendungen
+Die Architektur macht **SecureQR** interessant für Branchen, in denen **temporäre und dynamische QR-Codes** benötigt werden:
+- **Banken und Finanzdienstleister** (z. B. für temporäre Anmeldungen oder TAN-Prozesse)
+- **Zutritts- und Besuchersysteme** (z. B. für Firmengebäude oder Events)
+- **Sicheres Gerätepaaring** (z. B. IoT-Geräte, Kassen-Terminals, Smart-Home-Geräte)
+
+Durch die Kombination von **dynamischen QR-Codes, Signaturen und Live-Validierung** bietet dieses Projekt eine Basis, die auch in sicherheitskritischen Umgebungen eingesetzt werden könnte.
+
+---
+
 ## Lizenz
 
 MIT License – frei nutzbar, keine Gewährleistung.  
