@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <title>QR 2.0 Generator (Dual Canvas)</title>
+    <style>
+        #container {
+            position: relative;
+            width: 600px;
+            height: 600px;
+            margin: auto;
+        }
+
+        #qrCanvas,
+        #overlayCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #overlayCanvas {
+            pointer-events: none;
+        }
+
+        #log {
+            font-family: monospace;
+            font-size: 14px;
+            margin: 20px auto;
+            width: 80%;
+            border: 1px solid #ccc;
+            padding: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            background: #f8f8f8;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <canvas id="qrCanvas" width="600" height="600"></canvas>
+        <canvas id="overlayCanvas" width="600" height="600"></canvas>
+    </div>
+    <div id="log1"></div>
+    <div id="log"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <script>
+        let WS_URL, API_BASE, PUBLIC_KEY;
+        let partsCount = 6, requiredTokens = 1;
+        let tokens = [], tokenPartsArray = [];
+        let cycleId = Math.random().toString(36).substring(2, 10);
+        let stopQrGeneration = false;
+        let useRoundBlocks = false; // <-- neu, konfigurierbar
+        let useColorBlocks = false; // <-- neu, konfigurierbar
+
+        const log1Div = document.getElementById('log1');
+        const logDiv = document.getElementById('log');
+        const qrCanvas = document.getElementById('qrCanvas');
+        const qrCtx = qrCanvas.getContext('2d');
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const overlayCtx = overlayCanvas.getContext('2d');
+
+        let currentTokenIndex = 0, frame = 0;
+        let isValidated = false, validatedUntil = 0;
+        let isScanning = false, lastScanEvent = 0;
+        const SCAN_TIMEOUT = 500;
+        let scanBarY = 0, scanBarSpeed = 5;
+
+        function log(msg) {
+            const ts = new Date().toISOString();
+            logDiv.innerHTML += `[${ts}] ${msg}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateStatusText(frame, partsCount, requiredTokens) {
+            log1Div.innerText = `Teil ${frame % partsCount + 1}/${partsCount} (Tokens ${requiredTokens})`;
+        }
+
+        function generateToken(partsCount) {
+            const length = partsCount * 2; // z.B. 2 Zeichen pro Teil
+            const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+            let token = "";
+            for (let i = 0; i < length; i++) {
+                token += chars[Math.floor(Math.random() * chars.length)];
+            }
+            return token;
+        }
+
+        function splitToken(token, count) {
+            const baseSize = Math.floor(token.length / count);
+            const remainder = token.length % count;
+            let start = 0;
+            return Array.from({ length: count }, (_, i) => {
+                const extra = i < remainder ? 1 : 0;
+                const end = start + baseSize + extra;
+                const part = token.slice(start, end);
+                start = end;
+                return part;
+            });
+        }
+
+        function signPayload(obj) {
+            return CryptoJS.HmacSHA256(JSON.stringify(obj), PUBLIC_KEY)
+                .toString().substring(0, 5);
+        }
+
+        function createSegment(tokenIndex, partIndex) {
+            const payload = {
+                c: `${cycleId}-${tokenIndex}`,
+                i: partIndex + 1,
+                n: partsCount,
+                p: tokenPartsArray[tokenIndex][partIndex],
+                m: "S",
+                r: requiredTokens
+            };
+            payload.s = signPayload(payload);
+            console.log("QR Segment:", payload);  // <-- DEBUG: zeigt jedes Segment
+            return btoa(JSON.stringify(payload));
+        }
+
+        function initTokens() {
+            tokens = [];
+            for (let t = 0; t < requiredTokens; t++) {
+                tokens.push(generateToken(partsCount));
+            }
+            tokenPartsArray = tokens.map(tok => splitToken(tok, partsCount));
+            console.log(`Neue Tokens generiert (${tokens.length}) mit ${partsCount} Teilen pro Token`, tokenPartsArray);
+        }
+
+        const colorPalette = [
+            "#000000", // Schwarz
+            "#FF0000", // Rot
+            "#8000FF", // Violett (kräftig)
+        ];
+
+        function getModuleColor(r, c, partIndex) {
+            const index = (r * 17 + c * 31 + partIndex) % colorPalette.length;
+            return colorPalette[index];
+        }
+
+        function drawQR(color = "#000") {
+            const partIndex = frame % partsCount;
+            const payload = createSegment(currentTokenIndex, partIndex);
+            const qr = qrcode(5, 'L');
+            qr.addData(payload);
+            qr.make();
+
+            const moduleCount = qr.getModuleCount();
+            const tileSize = qrCanvas.width / moduleCount;
+
+            // Hintergrund weiß füllen
+            qrCtx.fillStyle = "#fff";
+            qrCtx.fillRect(0, 0, qrCanvas.width, qrCanvas.height);
+
+            for (let r = 0; r < moduleCount; r++) {
+                for (let c = 0; c < moduleCount; c++) {
+                    if (!qr.isDark(r, c)) continue;
+
+                    const isFinder =
+                        (r < 7 && c < 7) ||
+                        (r < 7 && c >= moduleCount - 7) ||
+                        (r >= moduleCount - 7 && c < 7);
+
+                    if (isFinder) {
+                        // Finder Patterns bleiben immer schwarz
+                        qrCtx.fillStyle = "#000";
+                        qrCtx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+                    } else if (useRoundBlocks) {
+                        // Datenmodule als Kreise
+                        const x = c * tileSize + tileSize / 2;
+                        const y = r * tileSize + tileSize / 2;
+                        const radius = tileSize * 0.55;
+
+                        qrCtx.beginPath();
+                        qrCtx.arc(x, y, radius, 0, Math.PI * 2, false);
+                        qrCtx.fillStyle = useColorBlocks ? getModuleColor(r, c, partIndex) : "#000";
+                        qrCtx.fill();
+                    } else {
+                        // Eckige Blöcke → jetzt farbig oder schwarz
+                        qrCtx.fillStyle = useColorBlocks ? getModuleColor(r, c, partIndex) : "#000";
+                        qrCtx.fillRect(c * tileSize, r * tileSize, tileSize, tileSize);
+                    }
+                }
+            }
+
+            updateStatusText(partIndex, partsCount, requiredTokens);
+            //log(`Sende Teil ${partIndex + 1}/${partsCount} des Tokens ${currentTokenIndex + 1}/${tokens.length}`);
+
+            frame++;
+            if (frame % partsCount === 0) {
+                currentTokenIndex = (currentTokenIndex + 1) % tokens.length;
+                log(`Wechsel auf Token ${currentTokenIndex + 1}/${tokens.length}`);
+            }
+        }
+
+        function drawCheckmark() {
+            qrCtx.clearRect(0, 0, qrCanvas.width, qrCanvas.height);
+            qrCtx.strokeStyle = "#0F0";
+            qrCtx.lineWidth = 20;
+            qrCtx.beginPath();
+            qrCtx.moveTo(qrCanvas.width * 0.2, qrCanvas.height * 0.5);
+            qrCtx.lineTo(qrCanvas.width * 0.4, qrCanvas.height * 0.7);
+            qrCtx.lineTo(qrCanvas.width * 0.8, qrCanvas.height * 0.3);
+            qrCtx.stroke();
+            qrCtx.fillStyle = "#0F0";
+            qrCtx.font = "bold 48px sans-serif";
+            qrCtx.textAlign = "center";
+            qrCtx.fillText("VALIDIERT!", qrCanvas.width / 2, qrCanvas.height - 40);
+        }
+
+        function drawScanBar() {
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            const barHeight = 20;
+            const gradient = overlayCtx.createLinearGradient(0, scanBarY, 0, scanBarY + barHeight);
+            gradient.addColorStop(0, "rgba(0,123,255,0.0)");
+            gradient.addColorStop(0.5, "rgba(0,123,255,0.6)");
+            gradient.addColorStop(1, "rgba(0,123,255,0.0)");
+            overlayCtx.fillStyle = gradient;
+            overlayCtx.fillRect(0, scanBarY, overlayCanvas.width, barHeight);
+            scanBarY += scanBarSpeed;
+            if (scanBarY > overlayCanvas.height || scanBarY < 0) scanBarSpeed = -scanBarSpeed, scanBarY += scanBarSpeed;
+        }
+
+        // --- Init ---
+        fetch('/api/config').then(r => r.json()).then(cfg => {
+            WS_URL = cfg.wsUrl;
+            API_BASE = cfg.apiBase;
+            PUBLIC_KEY = cfg.publicKey;
+            partsCount = cfg.partsCount;
+            requiredTokens = cfg.requiredTokens;
+            initTokens();
+            initWebSocket();
+            log(`Config geladen: partsCount=${partsCount}, requiredTokens=${requiredTokens}`);
+        });
+
+        function showTimeoutMessage(reason) {
+            log(`Session beendet: ${reason}`);
+            const timeoutOverlay = document.createElement("div");
+            timeoutOverlay.innerHTML = `<div style="
+                position:fixed;top:0;left:0;right:0;bottom:0;
+                background:rgba(0,0,0,0.7);color:#fff;
+                display:flex;align-items:center;justify-content:center;
+                font-size:2em;z-index:9999;">
+                SESSION ABGEBROCHEN (${reason})
+            </div>`;
+            document.body.appendChild(timeoutOverlay);
+        }
+
+        function initWebSocket() {
+            const ws = new WebSocket(WS_URL);
+            ws.onopen = () => log("WebSocket verbunden mit " + WS_URL);
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.event === "scan-progress") {
+                        isScanning = true; lastScanEvent = Date.now();
+                        log(`Scanfortschritt: ${data.progress}/${data.total}`);
+
+                    } else if (data.event === "validated") {
+                        isScanning = false; isValidated = true; validatedUntil = Date.now() + 2000;
+                        log(`Session ${data.sessionId} validiert`);
+
+
+                        stopQrGeneration = true; // QR-Code-Generierung stoppen
+
+                    } else if (data.event === "session-timeout") {
+
+                        if (data.sessionId === currentSessionId) {
+                            isValidated = false;
+                            showTimeoutMessage(data.reason);  // eigene Funktion
+                            stopQRGeneration(); // z. B. Intervall stoppen
+                        }
+
+                    } else if (data.event === "config-update") {
+                        log(`Neue Config empfangen: partsCount=${data.config.partsCount}, requiredTokens=${data.config.requiredTokens}`);
+                        partsCount = data.config.partsCount;
+                        requiredTokens = data.config.requiredTokens;
+                        cycleId = Math.random().toString(36).substring(2, 10);
+
+                        initTokens(); // <-- Tokens neu erzeugen
+                        frame = 0; // <-- Reset Frame
+                        currentTokenIndex = 0; // <-- Reset Index
+                    }
+                } catch (e) { log("Fehler beim WS-Parsing: " + e.message); }
+            };
+        }
+
+        // QR alle 333ms
+        setInterval(() => {
+            if (stopQrGeneration) {
+                // Zeige nur noch Checkmark und stoppe QR-Generierung
+                drawCheckmark();
+            } else if (isValidated && Date.now() < validatedUntil) {
+                drawCheckmark();
+            } else {
+                drawQR("#000");
+            }
+        }, 333);
+
+        // Overlay 30 FPS
+        setInterval(() => {
+            if (isValidated && Date.now() < validatedUntil) overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            else if (isScanning && Date.now() - lastScanEvent < SCAN_TIMEOUT) drawScanBar();
+            else overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        }, 33);
+    </script>
+</body>
+
+</html>

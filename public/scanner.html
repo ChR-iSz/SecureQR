@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>QR 2.0 Scanner (mit WS-Progress)</title>
+    <style>
+        body {
+            font-size: 18px;
+        }
+
+        #video {
+            width: 90vw;
+            height: 250px;
+            display: block;
+            margin: auto;
+        }
+
+        #output,
+        #log {
+            font-family: monospace;
+            white-space: pre;
+            padding: 10px;
+            font-size: 18px;
+        }
+
+        #log {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            background: #f8f8f8;
+        }
+
+        #startBtn {
+            padding: 15px;
+            font-size: 18px;
+        }
+
+        #partsTable {
+            font-family: monospace;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .part-cell {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            line-height: 40px;
+            font-size: 18px;
+            text-align: center;
+            margin: 3px;
+            border: 2px solid #aaa;
+            border-radius: 6px;
+        }
+
+        .filled {
+            background: #8f8;
+        }
+
+        .empty {
+            background: #f88;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>QR 2.0 Scanner</h1>
+    <button id="startBtn">Kamera starten</button>
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <div id="partsTable"></div>
+    <div id="output">Noch kein QR-Code erkannt...</div>
+    <div id="log"></div>
+    <div id="badge" style="position:absolute;top:20px;left:50%;transform:translateX(-50%);
+                background:rgba(0,255,0,0.8);color:#fff;font-weight:bold;
+                padding:10px 20px;border-radius:10px;display:none;z-index:1000;">
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script>
+        let WS_URL, API_BASE, PUBLIC_KEY;
+        let partsCount = 6, requiredTokens = 1;
+        let clientId = localStorage.getItem("qrClientId");
+        let ready = false, collected = {}, currentCycle = null, seenCycles = new Set();
+        let fullTokenCount = 0, tokensInRow = 0;
+        let ws = null, sessionId = null;
+        let badgeTimeout = null;
+        let transmittedFullTokens = [];   // <-- NEU
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const output = document.getElementById('output');
+        const partsTable = document.getElementById('partsTable');
+        const logDiv = document.getElementById('log');
+        const startBtn = document.getElementById('startBtn');
+        const badge = document.getElementById('badge');
+
+        function log(msg, type = "") {
+            const ts = new Date().toISOString();
+            const color = type === "err" ? "red" : type === "ok" ? "green" : "black";
+            logDiv.innerHTML += `<div style="color:${color}">[${ts}] ${msg}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function showBadge(text, color = "rgba(0,255,0,0.8)") {
+            badge.style.background = color;
+            badge.innerText = text;
+            badge.style.display = "block";
+            if (badgeTimeout) clearTimeout(badgeTimeout);
+            badgeTimeout = setTimeout(() => badge.style.display = "none", 2000);
+        }
+
+        function verifyQR(payload) {
+            if (!payload.c || !payload.i || !payload.n || !payload.p || !payload.s)
+                return { ok: false, reason: "Fehlende Felder" };
+            const { s, ...toCheck } = payload;
+            const expected = CryptoJS.HmacSHA256(JSON.stringify(toCheck), PUBLIC_KEY).toString().substring(0, 5);
+            if (s !== expected) return { ok: false, reason: "Signatur falsch" };
+            if (!currentCycle || currentCycle !== payload.c || partsCount !== payload.n) {
+                currentCycle = payload.c;
+                collected = {};
+                partsCount = payload.n; // ← damit er sich live anpasst
+            };
+            log(`Empfangen: Teil ${payload.i}/${payload.n} (aktuell gesammelt: ${Object.keys(collected).length + 1})`);
+            collected[payload.i] = payload.p;
+            return { ok: true, reason: "OK" };
+        }
+
+        function renderPartsTable() {
+            if (!partsCount) return;
+            partsTable.innerHTML = '';
+            for (let i = 1; i <= partsCount; i++) {
+                const div = document.createElement('div');
+                div.className = 'part-cell ' + (collected[i] ? 'filled' : 'empty');
+                div.textContent = i;
+                partsTable.appendChild(div);
+            }
+        }
+
+        async function connectWS() {
+            return new Promise((resolve, reject) => {
+                ws = new WebSocket(WS_URL);
+                ws.onopen = () => {
+                    log("WebSocket verbunden", "ok");
+                    if (!clientId) { clientId = "client-" + crypto.randomUUID(); localStorage.setItem("qrClientId", clientId); }
+                    ws.send(JSON.stringify({ action: "init", clientId }));
+                };
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.event === "session-init") {
+                        sessionId = data.sessionId;
+                        log(`Session vom Server erhalten: ${sessionId}`, "ok");
+                        resolve();
+                    } else if (data.event === "validated") {
+                        log(`Session ${data.sessionId} validiert (Client: ${data.clientId || "?"})`);
+                        if (data.clientId === clientId) showBadge(`✔ ${data.clientId || "unbekannt"}`);
+                    } else if (data.event === "config-update") {
+                        requiredTokens = data.config.requiredTokens;
+                        partsCount = data.config.partsCount;
+                        log(`Config geändert: partsCount=${partsCount}, requiredTokens=${requiredTokens}`);
+                    }
+                };
+                ws.onerror = err => { log("WebSocket Fehler: " + err.message, "err"); reject(err); };
+                ws.onclose = () => log("WebSocket geschlossen");
+            });
+        }
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                await connectWS();
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+                startBtn.style.display = 'none';
+                video.addEventListener('playing', () => ready = true);
+                scanFrame();
+            } catch (err) { log("Startfehler: " + err.message, "err"); }
+        });
+
+        function scanFrame() {
+            if (ready) {
+                canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const qrCode = jsQR(imageData.data, canvas.width, canvas.height);
+                if (qrCode) handleQR(qrCode.data);
+            }
+            setTimeout(scanFrame, 100);
+        }
+
+        function handleQR(base64Data) {
+            let payload;
+            try { payload = JSON.parse(atob(base64Data)); }
+            catch (e) { output.textContent = "Ungültige Base64-Payload"; return; }
+
+            const check = verifyQR(payload);
+            if (!check.ok) { output.textContent = `Ungültig: ${check.reason}`; return; }
+
+            requiredTokens = payload.r || 1;
+            partsCount = payload.n;
+            output.textContent =
+                `Token gültig\n` +
+                `Cycle: ${payload.c}\n` +
+                `Teil: ${payload.i}/${payload.n}\n` +
+                `Modus: ${payload.m}\n` +
+                `Benötigte Tokens: ${requiredTokens}\n` +
+                `Signatur: ${payload.s}\n` +
+                `Gesammelte Teile: ${Object.keys(collected).length}/${payload.n}\n` +
+                `Übermittelte FullTokens (${transmittedFullTokens.length}):\n- ${transmittedFullTokens.join('\n- ')}`;
+
+            renderPartsTable();
+
+            if (ws && ws.readyState === WebSocket.OPEN && sessionId) {
+                const progress = Object.keys(collected).length;
+                ws.send(JSON.stringify({ action: "scan-progress", sessionId, progress, total: partsCount }));
+            }
+
+            if (Object.keys(collected).length === payload.n && !seenCycles.has(payload.c)) {
+                seenCycles.add(payload.c);
+                fullTokenCount++; tokensInRow++;
+                const fullToken = Object.keys(collected).sort((a, b) => a - b).map(k => collected[k]).join('');
+                output.textContent += `\nFullToken (#${fullTokenCount}): ${fullToken}`;
+                output.textContent += `\nTokens in Folge: ${tokensInRow}/${requiredTokens}`;
+                if (ws && ws.readyState === WebSocket.OPEN && sessionId) {
+                    ws.send(JSON.stringify({ action: "validate", sessionId, clientId, fullToken }));
+                    log(`FullToken an Server gesendet (Cycle ${payload.c}) mit ClientId ${clientId}`, "ok");
+                    transmittedFullTokens.push(fullToken);   // <-- NEU
+                } else log("WebSocket nicht bereit, Token nicht gesendet!", "err");
+                collected = {}; currentCycle = null;
+                if (tokensInRow >= requiredTokens) { output.textContent += `\n*** Prozess abgeschlossen! ***`; tokensInRow = 0; seenCycles.clear(); }
+            }
+        }
+
+        // --- Initiale Konfig laden ---
+        fetch('/api/config').then(r => r.json()).then(cfg => {
+            WS_URL = cfg.wsUrl; API_BASE = cfg.apiBase; PUBLIC_KEY = cfg.publicKey;
+            requiredTokens = cfg.requiredTokens; partsCount = cfg.partsCount;
+            log(`Config geladen: partsCount=${partsCount}, requiredTokens=${requiredTokens}`);
+        });
+    </script>
+</body>
+
+</html>

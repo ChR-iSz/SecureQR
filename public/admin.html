@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>QR-Admin Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding:20px; }
+        #log { border:1px solid #ccc; padding:10px; max-height:200px; overflow:auto; }
+        #sessions { margin-top:20px; border-collapse: collapse; width:100%; }
+        #sessions th, #sessions td { border:1px solid #ccc; padding:5px; }
+        h1,h2 { margin-top:0; }
+    </style>
+</head>
+<body>
+    <h1>QR 2.0 Admin Dashboard</h1>
+    <h2>Aktive Sessions</h2>
+    <table id="sessions">
+        <thead>
+            <tr><th>SessionId</th><th>ClientId</th><th>Tokens</th><th>Parts</th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <h2>Live Log</h2>
+    <div id="log"></div>
+
+    <h2>Konfiguration</h2>
+    <label>Parts Count: <input id="partsCount" type="number"></label><br>
+    <label>Required Tokens: <input id="requiredTokens" type="number"></label><br>
+    <label><input id="singleClientOnly" type="checkbox"> Nur ein Client</label><br>
+    <button id="saveConfig">Speichern</button>
+
+<script>
+const logDiv = document.getElementById('log');
+const sessionTable = document.querySelector('#sessions tbody');
+const partsCountInput = document.getElementById('partsCount');
+const requiredTokensInput = document.getElementById('requiredTokens');
+const singleClientOnlyInput = document.getElementById('singleClientOnly');
+
+const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + window.location.hostname + ":3000";
+const ws = new WebSocket(WS_URL);
+const API_BASE = location.protocol + "//" + window.location.hostname + ":3000";
+
+ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.event === "sessions") renderSessions(data.sessions);
+    else log(`[${data.event}] ${JSON.stringify(data)}`);
+};
+
+function renderSessions(list) {
+    sessionTable.innerHTML = '';
+    list.forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${s.sessionId}</td><td>${s.clientId}</td>
+                        <td>${s.sentTokens}/${s.requiredTokens}</td>
+                        <td>${s.partsCount}</td>`;
+        sessionTable.appendChild(tr);
+    });
+}
+function log(msg) {
+    logDiv.innerHTML += msg + "<br>";
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+fetch(API_BASE+'/api/config').then(r => r.json()).then(cfg => {
+    partsCountInput.value = cfg.partsCount;
+    requiredTokensInput.value = cfg.requiredTokens;
+    singleClientOnlyInput.checked = cfg.singleClientOnly;
+});
+document.getElementById('saveConfig').onclick = () => {
+    fetch(API_BASE+'/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify({
+            partsCount: parseInt(partsCountInput.value),
+            requiredTokens: parseInt(requiredTokensInput.value),
+            singleClientOnly: singleClientOnlyInput.checked
+        })
+    }).then(r=>r.json()).then(cfg => log("Konfiguration gespeichert: " + JSON.stringify(cfg)));
+};
+</script>
+</body>
+</html>
