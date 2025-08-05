@@ -1,4 +1,4 @@
-# QR Code 2.0 Demo – Token-Splitting & Live Validation
+# SecureQR – Token-Splitting & Live Validation
 
 <p align="center">
   <img src="docs/generator.gif" alt="Standardansicht" width="300" style="margin-right: 50px;" />
@@ -195,6 +195,45 @@ Die Architektur macht **SecureQR** interessant für Branchen, in denen **tempor�
 - **Sicheres Gerätepaaring** (z. B. IoT-Geräte, Kassen-Terminals, Smart-Home-Geräte)
 
 Durch die Kombination von **dynamischen QR-Codes, Signaturen und Live-Validierung** bietet dieses Projekt eine Basis, die auch in sicherheitskritischen Umgebungen eingesetzt werden könnte.
+
+---
+
+## Einsatz als reCAPTCHA-Alternative
+
+SecureQR kann auch als **Human-Verification-System** dienen, ähnlich wie Google reCAPTCHA – jedoch ohne externe Abhängigkeiten:
+
+1. **Anwendungsfall:**  
+   - Ein Nutzer soll beweisen, dass er ein echter Mensch ist.  
+   - Statt eine Checkbox oder Bilderrätsel zu lösen, scannt er einen dynamischen QR-Code.
+
+2. **Ablauf:**  
+   - Ein dynamischer, zeitlich begrenzter QR-Code wird im Web-Frontend angezeigt.  
+   - Der Nutzer scannt ihn mit einem Smartphone oder einer anderen Kamera.  
+   - Das Smartphone oder ein eigener App-Scanner sendet das vollständige, rekonstruierte Token an den Server zurück.  
+   - Der Server prüft das Token (HMAC & Zeitlimit) und markiert den Nutzer als **validiert**.
+
+3. **Sicherheitsvorteile:**  
+   - Tokens sind **nur kurz gültig**.  
+   - Die Daten sind **auf mehrere Frames verteilt** (erschwertes automatisches Ablesen).  
+   - Der Client benötigt **echte Hardware (Kamera)**, was Bot-Angriffe deutlich erschwert.  
+   - Vollständig **selbst gehostet** – keine externen Dienste wie Google reCAPTCHA erforderlich.
+   - Die **Sicherheit kann dynamisch angepasst werden**: Bei verdächtigen oder problematischen Clients lassen sich sowohl die Token-Sequenz als auch die Anzahl der zu scannenden Tokens flexibel erhöhen.
+
+Das folgende Diagramm zeigt den Ablauf der Human Verification mit SecureQR:
+
+```mermaid
+sequenceDiagram
+    participant Browser as Browser (Frontend)
+    participant SecureQR as SecureQR Generator
+    participant Smartphone as Smartphone Scanner
+    participant Server as Backend
+
+    Browser->>SecureQR: Zeigt dynamischen QR-Code an
+    Smartphone->>SecureQR: Liest mehrere QR-Frames (Token-Teile)
+    Smartphone->>Server: Sendet vollständiges Token
+    Server->>Server: Prüft HMAC-Signatur & Zeitfenster
+    Server-->>Browser: Validierung erfolgreich (Human Verified)
+```
 
 ---
 
