@@ -1,8 +1,10 @@
 # SecureQR – Token-Splitting & Live Validation
 
 <p align="center">
-  <img src="docs/generator.gif" alt="Standardansicht" width="300" style="margin-right: 50px;" />
-  <img src="docs/generator2.gif" alt="ColorBlocks-Ansicht" width="300" />
+   <img src="docs/generator.gif" alt="Generator-Ansicht" width="300" style="margin-right: 50px;" />
+   <img src="docs/generator2.gif" alt="ColorBlocks-Ansicht" width="300" />
+   <br><br>
+   <img src="docs/SecureQR.gif" alt="Scanner-Ansicht" width="300" />
 </p>
 
 - **Standardansicht:** Klassische Darstellung mit Standardmodulen.  
